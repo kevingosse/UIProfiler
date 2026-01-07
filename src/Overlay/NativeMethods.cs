@@ -9,7 +9,7 @@ internal static class NativeMethods
     public const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
 
     [DllImport("user32.dll")]
-    public static extern uint GetDpiForWindow(IntPtr hwnd);
+    public static extern bool MoveWindow(IntPtr hWnd, int X, int Y, int nWidth, int nHeight, bool bRepaint);
 
     [DllImport("dwmapi.dll")]
     public static extern int DwmGetWindowAttribute(
@@ -23,9 +23,6 @@ internal static class NativeMethods
 
     [DllImport("user32.dll", SetLastError = true)]
     public static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
-
-    [DllImport("user32.dll")]
-    public static extern IntPtr GetForegroundWindow();
 
     [StructLayout(LayoutKind.Sequential)]
     public readonly struct RECT(int left, int top, int right, int bottom)

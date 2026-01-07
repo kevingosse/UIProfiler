@@ -9,9 +9,9 @@ using LiveChartsCore.Defaults;
 using LiveChartsCore.Kernel.Events;
 using LiveChartsCore.Kernel.Sketches;
 using LiveChartsCore.SkiaSharpView;
-using LiveChartsCore.SkiaSharpView.Drawing.Geometries;
 using LiveChartsCore.SkiaSharpView.Painting;
 using SkiaSharp;
+using RectangleGeometry = LiveChartsCore.SkiaSharpView.Drawing.Geometries.RectangleGeometry;
 
 namespace UiProfiler.Overlay;
 
@@ -27,6 +27,7 @@ public partial class OverlayWindow
     private readonly Stopwatch _stopwatch = new();
     private readonly Stopwatch _totalStopwatch = new();
     private long _total;
+    private readonly List<long> _freezeDurations = new();
 
     public OverlayWindow()
     {
@@ -42,7 +43,7 @@ public partial class OverlayWindow
             SKTypeface = SKTypeface.FromFamilyName("Arial", SKFontStyle.Bold),
             ZIndex = 10
         };
-        
+
         axis.LabelsPaint = paint;
         axis.Position = LiveChartsCore.Measure.AxisPosition.End;
         axis.InLineNamePlacement = false;
@@ -55,6 +56,8 @@ public partial class OverlayWindow
         {
             TextCaption.Text = caption;
         }
+
+        Chart.SizeChanged += Chart_SizeChanged;
 
         _timer = new DispatcherTimer
         {
@@ -79,25 +82,36 @@ public partial class OverlayWindow
         }
 
         TextTotalTime.Text = _total.ToString();
+        TextLast.Text = _freezeDurations.LastOrDefault().ToString();
+
+        for (int i = _values.Count - 1; i >= 0; i--)
+        {
+            if (_values[i].X == 0)
+            {
+                _values.RemoveAt(i);
+            }
+            else
+            {
+                _values[i].X -= 1;
+            }
+        }
 
         _values.Add(new(X[0].MaxLimit, elapsed));
-        X[0].MaxLimit++;
-        X[0].MinLimit++;
-
-        while (_values[0].X < X[0].MinLimit)
-        {
-            _values.RemoveAt(0);
-        }
     }
 
-    protected override void OnRenderSizeChanged(SizeChangedInfo sizeInfo)
+    private void Chart_SizeChanged(object sender, SizeChangedEventArgs e)
     {
-        var width = Chart.ActualWidth;
+        var width = e.NewSize.Width;
         var maxElements = width / BarWidth;
+        var oldMaxLimit = X[0].MaxLimit;
+        var offset = X[0].MaxLimit - oldMaxLimit;
+
+        foreach (var value in _values)
+        {
+            value.X += offset;
+        }
 
         X[0].MaxLimit = maxElements;
-
-        base.OnRenderSizeChanged(sizeInfo);
     }
 
     public ICartesianAxis[] X { get; set; } = [
@@ -108,7 +122,7 @@ public partial class OverlayWindow
         new Axis { MinLimit = 0, MaxLimit = 150, ShowSeparatorLines = true }
     ];
 
-    public ISeries[] Series { get; set; }
+    public ISeries[]? Series { get; set; }
 
     public RectangularSection[] Sections { get; set; } = [
         new()
@@ -129,16 +143,15 @@ public partial class OverlayWindow
 
         var series = new ColumnSeries<ObservablePoint, RectangleGeometry>
         {
-            Values = _values
+            Values = _values,
+            Padding = 0,
+            MaxBarWidth = BarWidth
         };
-
-        series.Padding = 0;
-        series.MaxBarWidth = BarWidth;
 
         series
             .OnPointMeasured(point =>
             {
-                if (point.Visual is null)
+                if (point.Visual is null || point.Model is null)
                 {
                     return;
                 }
@@ -163,6 +176,7 @@ public partial class OverlayWindow
             if (elapsedTime >= FreezeThreshold)
             {
                 _total += elapsedTime;
+                _freezeDurations.Add(elapsedTime);
             }
 
             if (_storyboardInProgress != null)
@@ -185,6 +199,12 @@ public partial class OverlayWindow
 
     public void Show(nint window)
     {
+        Show();
+        AdjustSize(window);
+    }
+
+    public void AdjustSize(nint window)
+    {        
         // Get bounding rectangle in device coordinates
         var hr = NativeMethods.DwmGetWindowAttribute(
             window,
@@ -205,18 +225,9 @@ public partial class OverlayWindow
             return;
         }
 
-        // Get DPI of the window
-        var dpi = NativeMethods.GetDpiForWindow(window);
+        var handle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
 
-        // Convert device pixels -> WPF device-independent pixels (DIPs)
-        // 1 DIP = 1 px at 96 DPI. So the scale factor is (96 / actualDPI)
-        double scale = 96.0 / dpi;
-
-        Left = rect.Left * scale;
-        Top = rect.Top * scale;
-        Width = windowWidthPx * scale;
-        Height = windowHeightPx * scale;
-
-        Show();
+        NativeMethods.MoveWindow(handle, rect.Left + 1, rect.Top + 1, windowWidthPx, windowHeightPx, false);
+        NativeMethods.MoveWindow(handle, rect.Left, rect.Top, windowWidthPx, windowHeightPx, true);
     }
 }

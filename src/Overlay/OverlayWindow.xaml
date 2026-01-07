@@ -11,7 +11,7 @@
         AllowsTransparency="True"
         WindowStyle="None">
     <Window.Resources>
-        <Storyboard x:Key="ShowStoryboard" Storyboard.Target="{Binding ElementName=Background}">
+        <Storyboard x:Key="ShowStoryboard" Storyboard.Target="{Binding ElementName=BackgroundRectangle}">
             <DoubleAnimation Duration="0:0:0.150" From="0" To="1" Storyboard.TargetProperty="Opacity">
                 <DoubleAnimation.EasingFunction>
                     <ExponentialEase EasingMode="EaseIn"/>
@@ -27,7 +27,7 @@
             <RowDefinition Height="auto" />
         </Grid.RowDefinitions>
 
-        <Rectangle x:Name="Background" Grid.RowSpan="3" Opacity="0">
+        <Rectangle x:Name="BackgroundRectangle" Grid.RowSpan="3" Opacity="0">
             <Rectangle.Fill>
                 <SolidColorBrush Color="#80FF0000"></SolidColorBrush>
             </Rectangle.Fill>
@@ -51,11 +51,14 @@
             <DockPanel.Background>
                 <SolidColorBrush Color="#1E1E1E" Opacity=".7" />
             </DockPanel.Background>
-            <TextBlock x:Name="TextCaption" Foreground="Salmon" TextBlock.FontSize="32" FontWeight="Bold" Margin="10 0 0 0" DockPanel.Dock="Left" />
+            <TextBlock x:Name="TextCaption" Foreground="Salmon" FontSize="32" FontWeight="Bold" Margin="10 0 0 0" DockPanel.Dock="Left" />
             <StackPanel Orientation="Horizontal" TextBlock.Foreground="Cyan" TextBlock.FontSize="32" DockPanel.Dock="Right" HorizontalAlignment="Right" Margin="0 0 10 0">
                 <TextBlock x:Name="TextThreshold" Margin="10 0 0 0" />
                 <TextBlock x:Name="TextTotalTime" Margin="0" FontWeight="Bold"/>
-                <TextBlock Text=" ms" Margin="0"/>
+                <TextBlock Text=" ms" Margin="0" />
+                <TextBlock Text=" (last: " Margin="0" />
+                <TextBlock x:Name="TextLast" Margin="0" FontWeight="Bold"/>
+                <TextBlock Text=" ms)" Margin="0" />
             </StackPanel>
         </DockPanel>
     </Grid>

@@ -8,7 +8,7 @@ namespace UiProfiler;
 
 internal class CorProfilerCallback : CorProfilerCallback4Base
 {
-    private static string _overlayPath;
+    private static string? _overlayPath;
 
     private readonly BlockingCollection<string> _messages = new();
     private readonly ManualResetEventSlim _responsiveMutex = new(false);
@@ -96,6 +96,11 @@ internal class CorProfilerCallback : CorProfilerCallback4Base
             {
                 if (isResponsive)
                 {
+                    if (!IsCursorOverProcessWindow())
+                    {
+                        continue;
+                    }
+
                     isResponsive = false;
 
                     var index = Interlocked.Increment(ref _pausesCount);
@@ -122,7 +127,7 @@ internal class CorProfilerCallback : CorProfilerCallback4Base
 
             while (true)
             {
-                Thread.Sleep(10);                
+                Thread.Sleep(10);
 
                 inputs[0] = new()
                 {
@@ -158,7 +163,7 @@ internal class CorProfilerCallback : CorProfilerCallback4Base
         {
             var pipeName = $"UIProfiler-{Guid.NewGuid()}";
 
-            var startInfo = new ProcessStartInfo(_overlayPath)
+            var startInfo = new ProcessStartInfo(_overlayPath!)
             {
                 UseShellExecute = false,
                 Arguments = $"{Environment.ProcessId} {pipeName}"
@@ -181,5 +186,43 @@ internal class CorProfilerCallback : CorProfilerCallback4Base
         {
             Logger.Log($"SenderThread failed: {ex}");
         }
+    }
+
+    private static bool IsCursorOverProcessWindow()
+    {
+        if (!NativeMethods.GetCursorPos(out var cursorPosition))
+        {
+            return false;
+        }
+
+        var isOverWindow = false;
+
+        NativeMethods.EnumWindows(
+            (hWnd, _) =>
+            {
+                NativeMethods.GetWindowThreadProcessId(hWnd, out var pid);
+
+                if (pid != Environment.ProcessId || !NativeMethods.IsWindowVisible(hWnd))
+                {
+                    return true;
+                }
+
+                if (!NativeMethods.GetWindowRect(hWnd, out var rect))
+                {
+                    return true;
+                }
+
+                if (cursorPosition.X < rect.Left || cursorPosition.X >= rect.Right ||
+                    cursorPosition.Y < rect.Top || cursorPosition.Y >= rect.Bottom)
+                {
+                    return true;
+                }
+
+                isOverWindow = true;
+                return false;
+            },
+            IntPtr.Zero);
+
+        return isOverWindow;
     }
 }

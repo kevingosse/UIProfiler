@@ -1,15 +1,15 @@
 ﻿using System.Diagnostics;
 using System.IO;
 using System.IO.Pipes;
-using System.Text;
 using System.Windows;
 using System.Windows.Interop;
 
 namespace UiProfiler.Overlay;
 
-public partial class App : Application
+public partial class App
 {
     private Process? _parentProcess;
+    private readonly CancellationTokenSource _cts = new();
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -29,10 +29,29 @@ public partial class App : Application
 
         var overlay = LoadOverlay();
 
-        Task.Run(() =>
+        Task.Run(async () =>
         {
-            var window = FindVsWindow(pid);
-            Dispatcher.BeginInvoke(() => overlay.Show(window));
+            var window = FindWindowForProcess(pid, IntPtr.Zero);
+            NativeMethods.GetWindowRect(window, out NativeMethods.RECT prevRect);
+            await Dispatcher.BeginInvoke(() => overlay.Show(window));
+
+            while (!_cts.Token.IsCancellationRequested)
+            {
+                await Task.Delay(100);
+                var newWindow = FindWindowForProcess(pid, window);
+
+                NativeMethods.GetWindowRect(newWindow, out var newRect);
+
+                bool windowChanged = newWindow != window;
+                bool rectChanged = newRect.Left != prevRect.Left || newRect.Top != prevRect.Top || newRect.Right != prevRect.Right || newRect.Bottom != prevRect.Bottom;
+
+                if (windowChanged || rectChanged)
+                {
+                    await Dispatcher.BeginInvoke(() => overlay.AdjustSize(newWindow));
+                    window = newWindow;
+                    prevRect = newRect;
+                }
+            }
         });
 
         new Thread(() => Listener(pipeName, overlay))
@@ -42,90 +61,42 @@ public partial class App : Application
         }.Start();
     }
 
-    private IntPtr FindVsWindow(int pid)
+    protected override void OnExit(ExitEventArgs e)
     {
-        //bool leftSide = false;
-
-        while (true)
-        {
-            var mainWindow = FindWindowWithCaption((uint)pid, "Visual Studio Preview");
-
-            if (mainWindow != IntPtr.Zero)
-            {
-                //// Move the window to the left half of the screen
-                //// Get screen dimensions
-                //int screenWidth = NativeMethods.GetSystemMetrics(NativeMethods.SM_CXSCREEN);
-                //int screenHeight = NativeMethods.GetSystemMetrics(NativeMethods.SM_CYSCREEN);
-
-                //// Calculate dimensions for the left half of the screen
-                //int newWidth = screenWidth / 2;
-                //int newHeight = screenHeight; // Occupy full height
-
-                //int newX = leftSide ? 0 : screenWidth / 2; 
-                //int newY = 0; // Starting from the top edge
-
-                //// Resize and move the window to the left half of the screen
-                //// SWP_SHOWWINDOW ensures the window is visible
-                //NativeMethods.SetWindowPos(mainWindow, IntPtr.Zero, newX, newY, newWidth, newHeight, NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE);
-
-                //// Move the mouse cursor to the center of the Visual Studio window (now resized)
-                //NativeMethods.GetWindowRect(mainWindow, out NativeMethods.RECT rect);
-                //// Re-calculate center based on the new dimensions
-                //int centerX = rect.Left + (rect.Right - rect.Left) / 2;
-                //int centerY = rect.Top + (rect.Bottom - rect.Top) / 2;
-
-                //// Move the cursor
-                //NativeMethods.SetCursorPos(centerX, centerY);
-
-                //Dispatcher.BeginInvoke(() => ShowOverlay(mainWindow));
-
-                //return mainWindow;
-
-                // Move the mouse cursor to the center of the Visual Studio window
-                NativeMethods.GetWindowRect(mainWindow, out NativeMethods.RECT rect);
-                int centerX = (rect.Left + rect.Right) / 3;
-                int centerY = (rect.Top + rect.Bottom) / 3;
-                // Move the cursor
-                NativeMethods.SetCursorPos(centerX, centerY);
-
-                return mainWindow;
-            }
-
-            Thread.Sleep(100);
-        }
+        _ = _cts.CancelAsync();
+        base.OnExit(e);
     }
 
-    private static IntPtr FindWindowWithCaption(uint processId, string windowCaption)
+    private static IntPtr FindWindowForProcess(int processId, IntPtr previousWindow)
     {
-        IntPtr foundWindow = IntPtr.Zero;
+        var foundWindow = IntPtr.Zero;
+        var firstWindow = IntPtr.Zero;
 
-        // Enumerate all top-level windows
-        NativeMethods.EnumWindows(EnumWindowsCallback, IntPtr.Zero);
-
-        return foundWindow;
-
-        bool EnumWindowsCallback(IntPtr hWnd, IntPtr lParam)
+        NativeMethods.EnumWindows((hWnd, _) =>
         {
-            // First, filter by process ID
-            NativeMethods.GetWindowThreadProcessId(hWnd, out uint windowProcessId);
-            if (windowProcessId != processId)
+            NativeMethods.GetWindowThreadProcessId(hWnd, out var windowProcessId);
+
+            if (windowProcessId != processId || !NativeMethods.IsWindowVisible(hWnd))
             {
-                return true; // Skip this window (continue enumeration)
+                return true; // continue
             }
 
-            // Get the window's title/caption
-            var windowTitle = new StringBuilder(256);
-            NativeMethods.GetWindowText(hWnd, windowTitle, 256);
-
-            // Check if the window is visible and matches the desired caption
-            if (NativeMethods.IsWindowVisible(hWnd) && windowTitle.ToString().Contains(windowCaption, StringComparison.OrdinalIgnoreCase))
+            if (hWnd == previousWindow)
             {
-                foundWindow = hWnd; // We found the window
-                return false;       // Stop enumeration
+                foundWindow = hWnd;
+                return false; // stop
             }
 
-            return true; // Continue enumeration
-        }
+            if (firstWindow == IntPtr.Zero)
+            {
+                firstWindow = hWnd;
+            }
+
+            return true; // continue
+        },
+        IntPtr.Zero);
+
+        return foundWindow != IntPtr.Zero ? foundWindow : firstWindow;
     }
 
     private void Listener(string pipeName, OverlayWindow overlay)
@@ -188,4 +159,3 @@ public partial class App : Application
         return overlay;
     }
 }
-
